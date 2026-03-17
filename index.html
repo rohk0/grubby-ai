@@ -409,20 +409,28 @@
                 <button class="settings-close" id="closeSettings">&times;</button>
             </div>
             <div class="settings-body">
-                <p class="settings-info">Connect your OpenAI API key for AI-powered humanization. Without a key, the tool uses local text transformation.</p>
+                <p class="settings-info">Connect an API key for AI-powered humanization. Without a key, the tool uses local text transformation.</p>
+
                 <label class="settings-label">
-                    OpenAI API Key
+                    API Provider
+                    <div class="provider-tabs">
+                        <button class="provider-tab active" data-provider="openai">OpenAI</button>
+                        <button class="provider-tab" data-provider="anthropic">Claude (Anthropic)</button>
+                    </div>
+                </label>
+
+                <label class="settings-label">
+                    API Key
                     <input type="password" id="apiKeyInput" placeholder="sk-..." class="settings-input">
                 </label>
+
                 <label class="settings-label">
                     Model
                     <select id="apiModelSelect" class="settings-input">
-                        <option value="gpt-4o-mini">GPT-4o Mini (Fast & Cheap)</option>
-                        <option value="gpt-4o">GPT-4o (Best Quality)</option>
-                        <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
-                        <option value="gpt-4.1">GPT-4.1</option>
+                        <!-- Populated by JS based on provider -->
                     </select>
                 </label>
+
                 <p class="settings-note">Your API key is stored locally in your browser and never sent to our servers.</p>
             </div>
             <div class="settings-footer">

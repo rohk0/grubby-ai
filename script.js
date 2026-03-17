@@ -14,18 +14,70 @@ const detectionScore = document.getElementById('detectionScore');
 const settingsModal = document.getElementById('settingsModal');
 const settingsBtn = document.getElementById('settingsBtn');
 const closeSettings = document.getElementById('closeSettings');
-const saveSettings = document.getElementById('saveSettings');
+const saveSettingsBtn = document.getElementById('saveSettings');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const apiModelSelect = document.getElementById('apiModelSelect');
 
-// Load saved settings
-let openaiApiKey = localStorage.getItem('grubby_openai_key') || '';
-let openaiModel = localStorage.getItem('grubby_openai_model') || 'gpt-4o-mini';
+// Model options per provider
+const modelOptions = {
+    openai: [
+        { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Fast & Cheap)' },
+        { value: 'gpt-4o', label: 'GPT-4o (Best Quality)' },
+        { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+        { value: 'gpt-4.1', label: 'GPT-4.1' },
+    ],
+    anthropic: [
+        { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Fast & Smart)' },
+        { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (Fastest & Cheapest)' },
+        { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (Best Quality)' },
+    ],
+};
 
+// Load saved settings
+let apiProvider = localStorage.getItem('grubby_provider') || 'openai';
+let apiKey = localStorage.getItem('grubby_api_key') || '';
+let apiModel = localStorage.getItem('grubby_api_model') || 'gpt-4o-mini';
+
+// ===== Provider Tabs =====
+function populateModels(provider) {
+    apiModelSelect.innerHTML = '';
+    modelOptions[provider].forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        apiModelSelect.appendChild(option);
+    });
+}
+
+function setActiveProvider(provider) {
+    apiProvider = provider;
+    document.querySelectorAll('.provider-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.provider === provider);
+    });
+    populateModels(provider);
+
+    // Update placeholder
+    if (provider === 'anthropic') {
+        apiKeyInput.placeholder = 'sk-ant-...';
+    } else {
+        apiKeyInput.placeholder = 'sk-...';
+    }
+}
+
+document.querySelectorAll('.provider-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        setActiveProvider(tab.dataset.provider);
+    });
+});
+
+// Open settings
 if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
-        apiKeyInput.value = openaiApiKey;
-        apiModelSelect.value = openaiModel;
+        setActiveProvider(apiProvider);
+        apiKeyInput.value = apiKey;
+        // Try to select saved model
+        const savedModel = apiModel;
+        setTimeout(() => { apiModelSelect.value = savedModel; }, 0);
         settingsModal.classList.add('active');
     });
 }
@@ -36,12 +88,13 @@ if (closeSettings) {
     });
 }
 
-if (saveSettings) {
-    saveSettings.addEventListener('click', () => {
-        openaiApiKey = apiKeyInput.value.trim();
-        openaiModel = apiModelSelect.value;
-        localStorage.setItem('grubby_openai_key', openaiApiKey);
-        localStorage.setItem('grubby_openai_model', openaiModel);
+if (saveSettingsBtn) {
+    saveSettingsBtn.addEventListener('click', () => {
+        apiKey = apiKeyInput.value.trim();
+        apiModel = apiModelSelect.value;
+        localStorage.setItem('grubby_provider', apiProvider);
+        localStorage.setItem('grubby_api_key', apiKey);
+        localStorage.setItem('grubby_api_model', apiModel);
         settingsModal.classList.remove('active');
         updateApiStatus();
     });
@@ -51,10 +104,11 @@ if (saveSettings) {
 function updateApiStatus() {
     const btn = document.getElementById('settingsBtn');
     if (!btn) return;
-    if (openaiApiKey) {
+    if (apiKey) {
         btn.style.borderColor = '#8FEA92';
         btn.style.color = '#8FEA92';
-        btn.title = 'API Connected (' + openaiModel + ')';
+        const providerLabel = apiProvider === 'anthropic' ? 'Claude' : 'OpenAI';
+        btn.title = `${providerLabel} API Connected (${apiModel})`;
     } else {
         btn.style.borderColor = '';
         btn.style.color = '';
@@ -62,6 +116,9 @@ function updateApiStatus() {
     }
 }
 updateApiStatus();
+
+// Initialize provider tabs on load
+setActiveProvider(apiProvider);
 
 // Close modal on outside click
 if (settingsModal) {
@@ -101,7 +158,6 @@ pasteBtn.addEventListener('click', async () => {
         const count = countWords(text);
         inputWordCount.textContent = `${count} word${count !== 1 ? 's' : ''}`;
     } catch (err) {
-        // Fallback
         inputText.focus();
     }
 });
@@ -115,7 +171,6 @@ copyBtn.addEventListener('click', async () => {
             copyBtn.textContent = 'Copied!';
             setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
         } catch (err) {
-            // Fallback
             const range = document.createRange();
             range.selectNodeContents(outputText);
             const sel = window.getSelection();
@@ -128,31 +183,29 @@ copyBtn.addEventListener('click', async () => {
     }
 });
 
-// ===== OpenAI API Humanization =====
-async function humanizeWithOpenAI(text, mode) {
+// ===== Humanization System Prompt =====
+function getSystemPrompt(mode) {
     const intensityMap = {
         standard: 'Make subtle changes to sound more natural and human while keeping the same meaning. Vary sentence length, add minor colloquialisms.',
         advanced: 'Significantly rephrase and restructure to sound naturally human-written. Change vocabulary, vary sentence structure, add personality.',
         aggressive: 'Completely rewrite in a natural human voice. Use casual language, varied rhythm, personal touches, and imperfect but authentic phrasing.'
     };
+    return `You are an expert text humanizer. Your job is to rewrite AI-generated text so it sounds like a real human wrote it. ${intensityMap[mode]} Do NOT add any commentary, prefixes, or explanations. Output ONLY the rewritten text. Preserve the original meaning and key information.`;
+}
 
+// ===== OpenAI API =====
+async function humanizeWithOpenAI(text, mode) {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openaiApiKey}`
+            'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-            model: openaiModel,
+            model: apiModel,
             messages: [
-                {
-                    role: 'system',
-                    content: `You are an expert text humanizer. Your job is to rewrite AI-generated text so it sounds like a real human wrote it. ${intensityMap[mode]} Do NOT add any commentary, prefixes, or explanations. Output ONLY the rewritten text. Preserve the original meaning and key information.`
-                },
-                {
-                    role: 'user',
-                    content: text
-                }
+                { role: 'system', content: getSystemPrompt(mode) },
+                { role: 'user', content: text }
             ],
             temperature: 0.85,
             max_tokens: 4096
@@ -161,11 +214,40 @@ async function humanizeWithOpenAI(text, mode) {
 
     if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err.error?.message || `API error: ${response.status}`);
+        throw new Error(err.error?.message || `OpenAI API error: ${response.status}`);
     }
 
     const data = await response.json();
     return data.choices[0].message.content.trim();
+}
+
+// ===== Claude (Anthropic) API =====
+async function humanizeWithClaude(text, mode) {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+            model: apiModel,
+            max_tokens: 4096,
+            system: getSystemPrompt(mode),
+            messages: [
+                { role: 'user', content: text }
+            ]
+        })
+    });
+
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Claude API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.content[0].text.trim();
 }
 
 // ===== Fallback Local Humanization =====
@@ -233,7 +315,6 @@ function humanizeLocally(text, mode) {
 
     let result = text;
 
-    // Replace AI-sounding phrases
     for (const [key, values] of Object.entries(synonyms)) {
         const regex = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
         result = result.replace(regex, () => {
@@ -241,18 +322,15 @@ function humanizeLocally(text, mode) {
         });
     }
 
-    // Replace transition phrases
     for (const [key, values] of Object.entries(transitionSwaps)) {
         if (result.includes(key)) {
             result = result.replace(key, values[Math.floor(Math.random() * values.length)]);
         }
     }
 
-    // Split into sentences for manipulation
     let sentences = result.match(/[^.!?]+[.!?]+/g) || [result];
 
     if (mode === 'advanced' || mode === 'aggressive') {
-        // Add occasional filler phrases
         sentences = sentences.map((s, i) => {
             if (i > 0 && Math.random() < 0.15) {
                 const filler = fillerPhrases[Math.floor(Math.random() * fillerPhrases.length)];
@@ -261,7 +339,6 @@ function humanizeLocally(text, mode) {
             return s;
         });
 
-        // Occasionally merge short sentences
         const merged = [];
         for (let i = 0; i < sentences.length; i++) {
             if (i < sentences.length - 1 && sentences[i].length < 60 && sentences[i + 1].length < 60 && Math.random() < 0.25) {
@@ -279,7 +356,6 @@ function humanizeLocally(text, mode) {
     }
 
     if (mode === 'aggressive') {
-        // Use contractions
         const contractions = {
             'do not': "don't", 'does not': "doesn't", 'did not': "didn't",
             'will not': "won't", 'can not': "can't", 'cannot': "can't",
@@ -311,18 +387,17 @@ humanizeBtn.addEventListener('click', async () => {
 
     const mode = document.querySelector('input[name="mode"]:checked').value;
 
-    // Show loading
     loadingOverlay.classList.add('active');
     humanizeBtn.disabled = true;
 
     try {
         let humanized;
 
-        if (openaiApiKey) {
-            // Use OpenAI API
+        if (apiKey && apiProvider === 'anthropic') {
+            humanized = await humanizeWithClaude(text, mode);
+        } else if (apiKey && apiProvider === 'openai') {
             humanized = await humanizeWithOpenAI(text, mode);
         } else {
-            // Fallback to local humanization
             await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1500));
             humanized = humanizeLocally(text, mode);
         }
@@ -350,11 +425,7 @@ document.querySelectorAll('.faq-question').forEach(btn => {
     btn.addEventListener('click', () => {
         const item = btn.parentElement;
         const isActive = item.classList.contains('active');
-
-        // Close all
         document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('active'));
-
-        // Toggle current
         if (!isActive) {
             item.classList.add('active');
         }
@@ -386,7 +457,6 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         const target = document.querySelector(anchor.getAttribute('href'));
         if (target) {
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            // Close mobile menu if open
             if (window.innerWidth <= 640) {
                 navLinks.style.display = 'none';
             }
